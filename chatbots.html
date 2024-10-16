@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title> Rage Game</title>
+    <style>
+        canvas {
+            display: block;
+            margin: 0 auto;
+            background-color: black;
+        }
+        #menu {
+            text-align: center;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="gameCanvas" width="1200" height="700"></canvas>
+<div id="menu">
+    <button id="pauseBtn">Pause</button>
+    <button id="restartBtn">Restart</button>
+</div>
+
+<script>
+// Set up the canvas and context
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Game settings
+const WIDTH = canvas.width;
+const HEIGHT = canvas.height;
+const GRAVITY = 0.5;
+const JUMP_STRENGTH = -12;
+const MOVE_SPEED = 5;
+
+// Game state variables
+let gamePaused = false;
+let gameOver = false;
+let levelNumber = 1;
+let hasKey = false;
+let goalReached = false;
+
+// Player object
+const player = {
+    x: WIDTH / 2,
+    y: HEIGHT / 2,
+    width: 50,
+    height: 50,
+    velocityY: 0,
+    isJumping: false,
+    color: 'white',
+    dx: 0
+};
+
+// Goal object
+let goal = {
+    x: WIDTH - 100,
+    y: HEIGHT - 100,
+    width: 50,
+    height: 50,
+    color: 'green'
+};
+
+// Platform and obstacles
+let platforms = [];
+let deadlyBlocks = [];
+let movingPlatforms = [];
+let breakingPlatforms = [];
+let buzzsaws = [];
+let keys = [];
+
+// Add platforms and gimmicks per level
+function generateLevel(level) {
+    platforms = [];
+    deadlyBlocks = [];
+    movingPlatforms = [];
+    breakingPlatforms = [];
+    buzzsaws = [];
+    keys = [];
+    goalReached = false;
+
+    // Add a simple ground platform
+    platforms.push({ x: 0, y: 650, width: WIDTH, height: 50, color: 'gray' });
+
+    if (level >= 2) { // Deadly blocks on the ground
+        deadlyBlocks.push({ x: 300, y: 600, width: 50, height: 50, color: 'red' });
+    }
+    if (level >= 3) { // Another set of deadly blocks
+        deadlyBlocks.push({ x: 600, y: 550, width: 50, height: 50, color: 'red' });
+    }
+    if (level >= 4) { // Moving platforms with proper hitboxes
+        movingPlatforms.push({ x: 100, y: 450, width: 150, height: 20, color: 'blue', dx: 2 });
+    }
+    if (level >= 5) { // Breaking platforms
+        breakingPlatforms.push({ x: 200, y: 350, width: 100, height: 20, color: 'brown', breakTimer: 0 });
+    }
+    if (level >= 6) { // New Goal position
+        goal = { x: WIDTH - 100, y: 450, width: 50, height: 50, color: 'green' };
+    }
+    if (level >= 7) { // Keys and doors
+        keys.push({ x: 50, y: 350, width: 30, height: 30, color: 'yellow' });
+    }
+    if (level >= 8) { // Buzzsaws with collision
+        buzzsaws.push({ x: 400, y: 400, radius: 20, color: 'silver', angle: 0 });
+    }
+}
+
+// Handle keypress events for player movement
+document.addEventListener('keydown', function(event) {
+    if (event.code === 'ArrowLeft') {
+        player.dx = -MOVE_SPEED;
+    } else if (event.code === 'ArrowRight') {
+        player.dx = MOVE_SPEED;
+    } else if (event.code === 'Space' && !player.isJumping && !gamePaused) {
+        player.isJumping = true;
+        player.velocityY = JUMP_STRENGTH;
+    }
+});
+
+document.addEventListener('keyup', function(event) {
+    if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') {
+        player.dx = 0;
+    }
+});
+
+// Pause and restart buttons
+document.getElementById('pauseBtn').addEventListener('click', function() {
+    gamePaused = !gamePaused; // Toggle pause
+});
+
+document.getElementById('restartBtn').addEventListener('click', function() {
+    resetGame(); // Restart the game
+});
+
+// Game update function
+function update() {
+    if (!gamePaused && !gameOver) {
+        // Apply gravity
+        player.velocityY += GRAVITY;
+        player.y += player.velocityY;
+
+        // Horizontal movement
+        player.x += player.dx;
+
+        // Prevent the player from falling off the screen
+        if (player.y + player.height > HEIGHT) {
+            player.y = HEIGHT - player.height;
+            player.isJumping = false;
+        }
+
+        // Check for collisions with platforms
+        platforms.forEach(platform => {
+            if (
+                player.x + player.width > platform.x &&
+                player.x < platform.x + platform.width &&
+                player.y + player.height > platform.y &&
+                player.y + player.height < platform.y + platform.height
+            ) {
+                player.y = platform.y - player.height; // Reset player on top of platform
+                player.isJumping = false;
+            }
+        });
+
+        // Update moving platforms and check collisions
+        movingPlatforms.forEach(platform => {
+            platform.x += platform.dx;
+            if (platform.x + platform.width > WIDTH || platform.x < 0) {
+                platform.dx *= -1; // Reverse direction at screen edges
+            }
+            if (
+                player.x + player.width > platform.x &&
+                player.x < platform.x + platform.width &&
+                player.y + player.height > platform.y &&
+                player.y + player.height < platform.y + platform.height
+            ) {
+                player.y = platform.y - player.height; // Stay on top of moving platform
+                player.isJumping = false;
+            }
+        });
+
+        // Handle breaking platforms
+        breakingPlatforms.forEach(platform => {
+            if (
+                player.x + player.width > platform.x &&
+                player.x < platform.x + platform.width &&
+                player.y + player.height > platform.y &&
+                player.y + player.height < platform.y + platform.height
+            ) {
+                platform.breakTimer++;
+                if (platform.breakTimer > 50) {
+                    platform.y += 10; // Make the platform fall
+                }
+            } else {
+                platform.breakTimer = 0;
+            }
+        });
+
+        // Check for collision with deadly blocks
+        deadlyBlocks.forEach(block => {
+            if (
+                player.x + player.width > block.x &&
+                player.x < block.x + block.width &&
+                player.y + player.height > block.y &&
+                player.y < block.y + block.height
+            ) {
+                gameOver = true; // Player dies on contact
+            }
+        });
+
+        // Check for collision with buzzsaws
+        buzzsaws.forEach(saw => {
+            saw.angle += 0.05; // Rotate the buzzsaw
+            let dist = Math.sqrt(Math.pow(player.x - saw.x, 2) + Math.pow(player.y - saw.y, 2));
+            if (dist < saw.radius + player.width / 2) {
+                gameOver = true;
+            }
+        });
+
+        // Collect keys
+        keys.forEach(key => {
+            if (
+                player.x + player.width > key.x &&
+                player.x < key.x + key.width &&
+                player.y + player.height > key.y &&
+                player.y < key.y + key.height
+            ) {
+                hasKey = true; // Player picks up the key
+                keys.splice(keys.indexOf(key), 1); // Remove key
+            }
+        });
+
+        // Check if the player reaches the goal
+        if (
+            player.x + player.width > goal.x &&
+            player.x < goal.x + goal.width &&
+            player.y + player.height > goal.y &&
+            player.y < goal.y + goal.height
+        ) {
+            goalReached = true;
+        }
+
+        // Proceed to the next level if goal is reached
+        if (goalReached) {
+            levelNumber++;
+            resetGame();
+        }
+    }
+}
+
+// Game draw function
+function draw() {
+    // Clear the canvas
+    ctx.clearRect(0, 0, WIDTH, HEIGHT);
+
+    // Draw player
+    ctx.fillStyle = player.color;
+    ctx.fillRect(player.x, player.y, player.width, player.height);
+
+    // Draw platforms
+    platforms.forEach(platform => {
+        ctx.fillStyle = platform.color;
+        ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+    });
+
+    // Draw moving platforms
+    movingPlatforms.forEach(platform => {
+        ctx.fillStyle = platform.color;
+        ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+    });
+
+    // Draw breaking platforms
+    breakingPlatforms.forEach(platform => {
+        ctx.fillStyle = platform.color;
+        ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+    });
+
+    // Draw deadly blocks
+    deadlyBlocks.forEach(block => {
+        ctx.fillStyle = block.color;
+        ctx.fillRect(block.x, block.y, block.width, block.height);
+    });
+
+    // Draw buzzsaws
+    buzzsaws.forEach(saw => {
+        ctx.save();
+        ctx.translate(saw.x, saw.y);
+        ctx.rotate(saw.angle);
+        ctx.fillStyle = saw.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, saw.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    });
+
+    // Draw keys
+    keys.forEach(key => {
+        ctx.fillStyle = key.color;
+        ctx.fillRect(key.x, key.y, key.width, key.height);
+    });
+
+    // Draw goal
+    ctx.fillStyle = goal.color;
+    ctx.fillRect(goal.x, goal.y, goal.width, goal.height);
+}
+
+// Reset the game to its initial state
+function resetGame() {
+    player.x = WIDTH / 2;
+    player.y = HEIGHT / 2;
+    player.velocityY = 0;
+    player.isJumping = false;
+    player.dx = 0;
+    gameOver = false;
+    hasKey = false;
+    goalReached = false;
+    generateLevel(levelNumber);
+}
+
+// Game loop
+function gameLoop() {
+    update();
+    draw();
+    if (!gameOver) {
+        requestAnimationFrame(gameLoop);
+    } else {
+        ctx.font = '50px Arial';
+        ctx.fillStyle = 'red';
+        ctx.fillText('Game Over', WIDTH / 2 - 150, HEIGHT / 2);
+    }
+}
+
+// Start the game
+resetGame();
+gameLoop();
+</script>
+
+</body>
+</html>
